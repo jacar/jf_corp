@@ -1,0 +1,23 @@
+{
+  "name": "Sistema de Reportes JF",
+  "short_name": "Reportes JF",
+  "description": "Sistema de gestión de reportes de viajes diarios para Corporación JF C.A",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#007cdb",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icons/icon-144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "maskable any"
+    }
+  ],
+  "categories": ["business", "productivity", "utilities"],
+  "lang": "es",
+  "dir": "ltr",
+  "scope": "/",
+  "prefer_related_applications": false
+}
