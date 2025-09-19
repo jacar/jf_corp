@@ -31,7 +31,6 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({
   isSingleConductorReport = false
 }) => {
   console.log("ReportPreview props:", { trips: trips.length, passengers: passengers.length, conductors: conductors.length, dateRange, mode, defaultConductorId, defaultDateISO });
-  console.log("ReportPreview props:", { trips: trips.length, passengers: passengers.length, conductors: conductors.length, dateRange, mode, defaultConductorId, defaultDateISO });
   const [signatures, setSignatures] = useState<Signature[]>([]);
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
@@ -53,52 +52,56 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({
   useEffect(() => {
     setSignatures(storage.getSignatures());
     
-    // Pre-llenar algunos datos si hay viajes
-    if (trips.length > 0) {
-      const firstTrip = trips[0];
-      const conductor = conductors.find(c => c.id === firstTrip.conductorId);
-      const tripDate = new Date(firstTrip.startTime);
+    // Get the first trip (if available) to extract conductor and unit info
+    const firstTrip = trips[0];
+    let conductorData = null;
+    let tripDate = defaultDateISO ? new Date(defaultDateISO) : new Date();
+    
+    if (firstTrip) {
+      // Try to find the conductor in the conductors list first
+      conductorData = conductors.find(c => c.id === firstTrip.conductorId);
+      tripDate = new Date(firstTrip.startTime);
       
-      // Generar ID de reporte consecutivo (00, 01, 02, etc.)
-      const reportId = String(trips.length).padStart(2, '0');
-      
-      setReportData({
-        conductor: conductor?.name || '',
-        unidad: conductor?.placa || '',
-        area: conductor?.area || '',
-        dia: format(tripDate, 'd'),
-        mes: format(tripDate, 'M'),
-        año: format(tripDate, 'yyyy'),
-        hora: format(tripDate, 'HH:mm'),
-        ampm: { 
-          am: tripDate.getHours() < 12, 
-          pm: tripDate.getHours() >= 12 
-        },
-        reportId: reportId
-      });
-    } else {
-      // Si no hay viajes, usar el conductor por defecto y la fecha actual (o provista)
-      const now = defaultDateISO ? new Date(defaultDateISO) : new Date();
-      const conductor = defaultConductorId
-        ? conductors.find(c => c.id === defaultConductorId)
-        : undefined;
-      
-      // Generar ID de reporte consecutivo (00, 01, 02, etc.)
-      const reportId = String(trips.length).padStart(2, '0');
-      
-      setReportData({
-        conductor: conductor?.name || '',
-        unidad: conductor?.placa || '',
-        area: conductor?.area || '',
-        dia: format(now, 'd'),
-        mes: format(now, 'M'),
-        año: format(now, 'yyyy'),
-        hora: format(now, 'HH:mm'),
-        ampm: { am: now.getHours() < 12, pm: now.getHours() >= 12 },
-        reportId: reportId
-      });
+      // If conductor not found in the list, use the data from the trip
+      if (!conductorData) {
+        conductorData = {
+          id: firstTrip.conductorId,
+          nombre: firstTrip.conductorName,
+          numeroUnidad: firstTrip.vehiclePlate || 'N/A',
+          area: firstTrip.passengerGerencia || 'N/A'
+        };
+      }
+    } else if (defaultConductorId) {
+      // If no trips but we have a default conductor ID, use that
+      conductorData = conductors.find(c => c.id === defaultConductorId);
     }
-    console.log("ReportPreview: reportData calculated:", reportData);
+    
+    // Generate report ID (00, 01, 02, etc.)
+    const reportId = String(trips.length).padStart(2, '0');
+    
+    // Update report data with the conductor and unit information
+    setReportData(prev => ({
+      ...prev,
+      conductor: conductorData?.nombre || firstTrip?.conductorName || 'No especificado',
+      unidad: conductorData?.numeroUnidad || firstTrip?.vehiclePlate || 'No especificada',
+      area: conductorData?.area || firstTrip?.passengerGerencia || 'N/A',
+      dia: format(tripDate, 'd'),
+      mes: format(tripDate, 'M'),
+      año: format(tripDate, 'yyyy'),
+      hora: format(tripDate, 'HH:mm'),
+      ampm: { 
+        am: tripDate.getHours() < 12, 
+        pm: tripDate.getHours() >= 12 
+      },
+      reportId: reportId
+    }));
+    
+    console.log("Datos del reporte actualizados:", {
+      conductor: conductorData?.nombre || firstTrip?.conductorName,
+      unidad: conductorData?.numeroUnidad || firstTrip?.vehiclePlate,
+      area: conductorData?.area || firstTrip?.passengerGerencia,
+      fecha: tripDate
+    });
   }, [trips, conductors, defaultConductorId, defaultDateISO]);
 
   const handleInputChange = (field: string, value: string | boolean) => {
@@ -157,7 +160,28 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({
       const conductorName = reportData.conductor.replace(/\s+/g, '_');
       const fileName = `Reporte_${conductorName}_${currentDate}.pdf`;
       const file = new File([pdfBlob], fileName, { type: 'application/pdf' });
-      const pdfUrl = URL.createObjectURL(pdfBlob);
+      
+      // Crear URL segura para el blob
+      let pdfUrl;
+      try {
+        pdfUrl = window.URL.createObjectURL(pdfBlob);
+        // Forzar https si estamos en producción
+        if (window.location.protocol === 'https:' && pdfUrl.startsWith('blob:http:')) {
+          pdfUrl = pdfUrl.replace('blob:http:', 'blob:https:');
+        }
+      } catch (error) {
+        console.error('Error al crear URL para el PDF:', error);
+        // Fallback a descarga directa si hay error con la URL
+        const downloadUrl = URL.createObjectURL(pdfBlob);
+        const a = document.createElement('a');
+        a.href = downloadUrl;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(downloadUrl);
+        return;
+      }
 
       // For Android and iOS - use Web Share API first
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
@@ -252,6 +276,7 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({
   const downloadPDFStructured = async (returnAsBlob = false) => {
     console.log('downloadPDFStructured called with returnAsBlob:', returnAsBlob);
     setIsGeneratingPDF(true);
+    
     try {
       const doc = new jsPDF('p', 'mm', 'a4');
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -322,9 +347,9 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({
         doc.setFontSize(14);
         doc.text('REPORTE DE VIAJES DIARIOS', pageWidth / 2, y + 9, { align: 'center' });
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
-        doc.setFontSize(7);
+        doc.setFontSize(5); // Reducido de 10 a 5
         doc.text('RIF: J-50014920-4', pageWidth - margin - rightLogoWidth - 2 + rightLogoWidth / 2, y + rightLogoHeight + 3, { align: 'center' });
+        
         // AREA box under title (left)
         const areaY = y + headerHeight;
         const areaW = 55;
@@ -337,49 +362,86 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({
         doc.text(reportData.area || '', margin + 2 + areaW / 2, areaY + 12.4, { align: 'center' });
         doc.setFontSize(10);
         y = areaY + 14;
+        
         if (withMeta) {
-          // Conductor / Unidad row
+          // Sección de Conductor/Unidad
           const metaLeft = margin + 2;
           const metaRight = pageWidth - margin - 2;
-          const rowH = 7; // more height to avoid line overlap
-          doc.setFont('helvetica', 'bold');
+          const rowH = 8;
           const rowY1 = y;
           const leftW = (metaRight - metaLeft) * 0.7;
           const rightW = (metaRight - metaLeft) * 0.3;
-          doc.rect(metaLeft, rowY1, leftW, rowH);
-        // place text slightly lower and inset from left border
-          doc.text('CONDUCTOR:', metaLeft + 2, rowY1 + 4.6);
-          doc.rect(metaLeft + leftW, rowY1, rightW, rowH);
-          doc.text('UNIDAD:', metaLeft + leftW + 2, rowY1 + 4.6);
-          // Values
-          doc.setFont('helvetica', 'normal');
-          // place values with safe padding from borders
-          doc.text(String(reportData.conductor || ''), metaLeft + 28, rowY1 + 4.6);
-          doc.text(String(reportData.unidad || ''), metaLeft + leftW + 22, rowY1 + 4.6);
-          y += rowH;
-          // DIA MES AÑO HORA AM PM row - widen cells and increase height for clarity
-          const diaW = 16, mesW = 16, anoW = 18, horaW = 30, ampmW = 30;
-          const rowY2 = y;
-          const rowH2 = rowH + 2;
-          // Labels
+          
+          // Fondo resaltado para la información del conductor
+          doc.setFillColor(240, 240, 240);
+          doc.rect(metaLeft, rowY1, metaRight - metaLeft, rowH, 'F');
+          doc.setDrawColor(200, 200, 200);
+          doc.rect(metaLeft, rowY1, metaRight - metaLeft, rowH);
+          
+          // Texto del conductor
+          doc.setFont('helvetica', 'bold');
           doc.setFontSize(9);
-          doc.rect(metaLeft, rowY2, diaW, rowH2); doc.text('DIA', metaLeft + diaW / 2, rowY2 + 4.6, { align: 'center' });
-          doc.rect(metaLeft + diaW, rowY2, mesW, rowH2); doc.text('MES', metaLeft + diaW + mesW / 2, rowY2 + 4.6, { align: 'center' });
-          doc.rect(metaLeft + diaW + mesW, rowY2, anoW, rowH2); doc.text('AÑO', metaLeft + diaW + mesW + anoW / 2, rowY2 + 4.6, { align: 'center' });
-          doc.rect(metaLeft + diaW + mesW + anoW, rowY2, horaW, rowH2); doc.text('HORA', metaLeft + diaW + mesW + anoW + horaW / 2, rowY2 + 4.6, { align: 'center' });
-          doc.rect(metaLeft + diaW + mesW + anoW + horaW, rowY2, ampmW, rowH2); doc.text('AM', metaLeft + diaW + mesW + anoW + horaW + ampmW / 2, rowY2 + 4.6, { align: 'center' });
-          doc.rect(metaLeft + diaW + mesW + anoW + horaW + ampmW, rowY2, ampmW, rowH2); doc.text('PM', metaLeft + diaW + mesW + anoW + horaW + ampmW + ampmW / 2, rowY2 + 4.6, { align: 'center' });
-          // Values centered and lowered a bit more (smaller numbers to avoid touching lines)
+          doc.text('CONDUCTOR:', metaLeft + 5, rowY1 + 5);
           doc.setFont('helvetica', 'normal');
-          doc.setFontSize(8.6);
-          const valY = rowY2 + 7.0;
-          doc.text(String(reportData.dia || ''), metaLeft + diaW / 2, valY, { align: 'center' });
-          doc.text(String(reportData.mes || ''), metaLeft + diaW + mesW / 2, valY, { align: 'center' });
-          doc.text(String(reportData.año || ''), metaLeft + diaW + mesW + anoW / 2, valY, { align: 'center' });
-          doc.text(String(reportData.hora || ''), metaLeft + diaW + mesW + anoW + horaW / 2, valY, { align: 'center' });
-          if (reportData.ampm.am) doc.text('X', metaLeft + diaW + mesW + anoW + horaW + ampmW / 2, valY, { align: 'center' });
-          if (reportData.ampm.pm) doc.text('X', metaLeft + diaW + mesW + anoW + horaW + ampmW + ampmW / 2, valY, { align: 'center' });
-          y += rowH2 + 2;
+          doc.text(String(reportData.conductor || 'No especificado'), metaLeft + 35, rowY1 + 5);
+          
+          // Texto de la unidad
+          doc.setFont('helvetica', 'bold');
+          doc.text('UNIDAD:', metaLeft + leftW + 5, rowY1 + 5);
+          doc.setFont('helvetica', 'normal');
+          doc.text(String(reportData.unidad || 'No especificada'), metaLeft + leftW + 30, rowY1 + 5);
+          
+          y += rowH + 4; // Espacio después de la sección de conductor/unidad
+          
+          // Fila de fecha y hora con cuadros
+          doc.setFontSize(9);
+          doc.setFont('helvetica', 'bold');
+          
+          // Configuración de posiciones
+          const startX = metaLeft;
+          const labelY = y + 3;     // Posición Y para las etiquetas
+          const boxY = y + 6;       // Posición Y para las cajas (un poco más abajo)
+          const boxHeight = 6;      // Altura de las cajas
+          const boxSpacing = 5;     // Espacio entre cajas
+          
+          // Definir los campos con sus anchos
+          const fields = [
+            { label: 'DIA', width: 20, value: reportData.dia || '' },
+            { label: 'MES', width: 20, value: reportData.mes || '' },
+            { label: 'AÑO', width: 25, value: reportData.año || '' },
+            { label: 'HORA', width: 30, value: reportData.hora || '' },
+            { label: 'AM', width: 20, value: reportData.ampm.am ? 'X' : '' },
+            { label: 'PM', width: 20, value: reportData.ampm.pm ? 'X' : '' }
+          ];
+          
+          // Dibujar etiquetas y cajas
+          let currentX = startX;
+          
+          fields.forEach(field => {
+            // Dibujar etiqueta centrada sobre la caja
+            doc.text(field.label, currentX + (field.width / 2), labelY, { align: 'center' });
+            
+            // Dibujar caja
+            doc.setDrawColor(0, 0, 0); // Color negro para el borde
+            doc.rect(currentX, boxY, field.width, boxHeight);
+            
+            // Dibujar valor centrado en la caja
+            if (field.value) {
+              doc.setFont('helvetica', 'normal');
+              doc.text(
+                field.value, 
+                currentX + (field.width / 2), 
+                boxY + (boxHeight / 2) + 1, 
+                { align: 'center' }
+              );
+              doc.setFont('helvetica', 'bold');
+            }
+            
+            currentX += field.width + boxSpacing;
+          });
+          
+          // Ajustar posición Y para el siguiente elemento
+          y = boxY + boxHeight + 5;
         }
       };
       // First page header with meta
@@ -494,66 +556,89 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({
         y += rowHeight;
       };
 
-      const rowsPerPage = 20;
+      const rowsPerPage = 18; // Cambiado de 20 a 18 filas por página
       let counter = 0;
-      for (let i = 0; i < rows.length; i++) {
+      
+      // Dibujar solo las primeras 18 filas
+      for (let i = 0; i < Math.min(rows.length, rowsPerPage); i++) {
         drawRow(rows[i]);
         counter++;
-        if (counter === rowsPerPage && i < rows.length - 1) {
-          // New page after 26 rows, continue table
-          doc.addPage();
-          y = margin;
-          drawHeader(false);
-          drawTableHeader();
-          doc.setFont('helvetica', 'normal');
-          counter = 0;
-        }
       }
 
-      // Signatures: always placed at end of the CURRENT (last) page.
-      if (y > pageHeight - 50) {
-        doc.addPage();
-        y = margin;
-        drawHeader(false);
-      }
-      y = Math.max(y + 6, pageHeight - 50);
-      const sigWidth = (pageWidth - margin * 2 - 10) / 2;
-      const sigHeight = 28;
-      const contratista = signatures.find(s => s.type === 'contratista');
-      const corporacion = signatures.find(s => s.type === 'corporacion');
-
-      // Contratista box
-      doc.rect(margin, y, sigWidth, sigHeight);
-      doc.setFont('helvetica', 'bold');
-      doc.text('Verificado por: CONTRATISTA CORPORACIÓN JF C.A', margin + 2, y + 6);
+      // Configuración del footer
       doc.setFont('helvetica', 'normal');
-      doc.text(`Nombre: ${contratista?.name || 'RONALD MATA'}`, margin + 2, y + 12);
-      doc.text(`CI: ${contratista?.ci || '20.764.490'}`, margin + 2, y + 18);
-      doc.text(`Cargo: ${contratista?.cargo || 'SUPERVISOR DE OPERACIONES'}`, margin + 2, y + 24);
-
-      // Corporación box
-      const rightX = margin + sigWidth + 10;
-      doc.rect(rightX, y, sigWidth, sigHeight);
+      doc.setFontSize(9);
+      
+      // Configuración de columnas
+      const footerColumnWidth = 80; // Ancho fijo para cada columna
+      const footerGap = 20; // Espacio entre columnas
+      const footerTotal = (footerColumnWidth * 2) + footerGap;
+      const footerStartX = (pageWidth - footerTotal) / 2; // Centrar las columnas
+      const footerStartY = y + 20; // Espacio después de la tabla
+      const footerLineHeight = 5; // Espaciado entre líneas
+      
+      // Primera columna (izquierda) - CONTRATISTA
       doc.setFont('helvetica', 'bold');
-      doc.text('Verificado por: PETROBOSCAN, S.A.', rightX + 2, y + 6);
+      doc.text('Verificado por: CONTRATISTA', footerStartX, footerStartY);
+      doc.text('CORPORACIÓN JF C.A', footerStartX, footerStartY + footerLineHeight);
       doc.setFont('helvetica', 'normal');
-      doc.text(`Nombre: ${corporacion?.name || 'PATRICIA CHAVEZ'}`, rightX + 2, y + 12);
-      doc.text(`CI: ${corporacion?.ci || '19.408.187'}`, rightX + 2, y + 18);
-      doc.text(`Cargo: ${corporacion?.cargo || 'SUPERVISOR DE TRANSPORTE'}`, rightX + 2, y + 24);
+      doc.text('Nombre: RONALD MATA', footerStartX, footerStartY + (footerLineHeight * 2));
+      doc.text('CI:  20.764.490', footerStartX, footerStartY + (footerLineHeight * 3));
+      doc.text('Cargo: SUPERVISOR DE OPERACIONES', footerStartX, footerStartY + (footerLineHeight * 4));
+      
+      // Segunda columna (derecha) - PETROBOSCAN
+      const footerRightColX = footerStartX + footerColumnWidth + footerGap;
+      doc.setFont('helvetica', 'bold');
+      doc.text('Verificado por: PETROBOSCAN, S.A.', footerRightColX, footerStartY);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Nombre: PATRICIA CHAVEZ', footerRightColX, footerStartY + (footerLineHeight * 2));
+      doc.text('CI: 19.408.187', footerRightColX, footerStartY + (footerLineHeight * 3));
+      doc.text('Cargo: SUPERVISOR DE TRANSPORTE', footerRightColX, footerStartY + (footerLineHeight * 4));
 
+      // Línea de firma
+      doc.setLineWidth(0.2);
+      doc.line(
+        footerStartX, 
+        footerStartY + (footerLineHeight * 6), 
+        footerStartX + footerColumnWidth, 
+        footerStartY + (footerLineHeight * 6)
+      );
+      doc.line(
+        footerRightColX, 
+        footerStartY + (footerLineHeight * 6), 
+        footerRightColX + footerColumnWidth, 
+        footerStartY + (footerLineHeight * 6)
+      );
+
+      // 1. Generar el PDF como blob primero
       const pdfBlob = doc.output('blob');
-
+      
       if (returnAsBlob) {
-        console.log('Returning PDF as blob, not saving to file.');
         return pdfBlob;
       }
 
-      const fileName = `reporte_${reportData.conductor}_${reportData.dia}-${reportData.mes}-${reportData.año}.pdf`;
-      console.log('Attempting to save PDF with fileName:', fileName);
-      doc.save(fileName);
+      // 2. Crear un enlace de descarga directa
+      const downloadUrl = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = downloadUrl;
+      link.download = `reporte_${reportData.conductor}_${reportData.dia}-${reportData.mes}-${reportData.año}.pdf`;
+      
+      // 3. Descargar el archivo
+      document.body.appendChild(link);
+      link.click();
+      
+      // 4. Limpiar
+      setTimeout(() => {
+        document.body.removeChild(link);
+        URL.revokeObjectURL(downloadUrl);
+      }, 100);
+      
     } catch (error: any) {
-      console.error('Error al generar o descargar el PDF estructurado:', error);
-      alert(`Error al generar o descargar el PDF: ${error.message || error}`);
+      console.error('Error al generar el PDF:', error);
+      // Crear un PDF de error simple
+      const errorDoc = new jsPDF();
+      errorDoc.text('Error al generar el PDF. Por favor intente nuevamente.', 10, 10);
+      errorDoc.save('error_del_reporte.pdf');
     } finally {
       setIsGeneratingPDF(false);
     }
@@ -790,7 +875,6 @@ const ReportPreview: React.FC<ReportPreviewProps> = ({
                       (e.currentTarget as HTMLImageElement).src = 'https://www.webcincodev.com/blog/wp-content/uploads/2025/08/Diseno-sin-titulo-27.png';
                     }}
                   />
-                  <div className="rif-text">RIF: J-50014920-4</div>
                 </div>
               </div>
 

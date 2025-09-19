@@ -24,6 +24,8 @@ const Conductors: React.FC = () => {
     nombre: '',
     ruta: ''
   });
+  const [editingUnitId, setEditingUnitId] = useState<string | null>(null);
+  const [tempUnitNumber, setTempUnitNumber] = useState('');
 
   useEffect(() => {
     applySEO({
@@ -131,6 +133,44 @@ const Conductors: React.FC = () => {
     setShowModal(false);
   };
 
+  const handleUnitNumberClick = (conductor: Conductor) => {
+    setEditingUnitId(conductor.id);
+    setTempUnitNumber(conductor.numeroUnidad);
+  };
+
+  const handleUnitNumberChange = async (conductorId: string, newUnitNumber: string) => {
+    // Validar que el número no esté vacío
+    if (!newUnitNumber.trim()) return;
+    
+    const updatedConductors = conductors.map(c => 
+      c.id === conductorId 
+        ? { ...c, numeroUnidad: newUnitNumber, updatedAt: new Date().toISOString() }
+        : c
+    );
+    
+    try {
+      await storage.saveConductors(updatedConductors);
+      setConductors(updatedConductors);
+      setEditingUnitId(null);
+      
+      // Si es un número nuevo, agregarlo a la lista de unidades disponibles
+      if (!NUMEROS_UNIDAD.includes(newUnitNumber)) {
+        NUMEROS_UNIDAD.push(newUnitNumber);
+        NUMEROS_UNIDAD.sort((a, b) => a.localeCompare(b, undefined, {numeric: true}));
+      }
+    } catch (error) {
+      console.error('Error al actualizar el número de unidad:', error);
+    }
+  };
+
+  const handleUnitNumberKeyDown = (e: React.KeyboardEvent, conductorId: string) => {
+    if (e.key === 'Escape') {
+      setEditingUnitId(null);
+    } else if (e.key === 'Enter') {
+      handleUnitNumberChange(conductorId, tempUnitNumber);
+    }
+  };
+
   return (
     <div className="space-y-6 w-full">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between space-y-4 sm:space-y-0">
@@ -187,7 +227,34 @@ const Conductors: React.FC = () => {
               {filteredConductors.map((conductor, index) => (
                 <tr key={conductor.id} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-semibold text-blue-800">
-                    {conductor.numeroUnidad}
+                    {editingUnitId === conductor.id ? (
+                      <div className="relative">
+                        <input
+                          type="text"
+                          autoFocus
+                          value={tempUnitNumber}
+                          onChange={(e) => setTempUnitNumber(e.target.value.toUpperCase())}
+                          onBlur={() => handleUnitNumberChange(conductor.id, tempUnitNumber)}
+                          onKeyDown={(e) => handleUnitNumberKeyDown(e, conductor.id)}
+                          className="w-24 border border-blue-300 rounded-md px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          list="unitNumbers"
+                        />
+                        <datalist id="unitNumbers">
+                          {NUMEROS_UNIDAD.map(numero => (
+                            <option key={numero} value={numero}>
+                              {numero}
+                            </option>
+                          ))}
+                        </datalist>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => handleUnitNumberClick(conductor)}
+                        className="hover:bg-blue-50 px-2 py-1 rounded-md transition-colors focus:outline-none focus:ring-2 focus:ring-blue-200"
+                      >
+                        {conductor.numeroUnidad}
+                      </button>
+                    )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700">
                     {conductor.area || '-'}
