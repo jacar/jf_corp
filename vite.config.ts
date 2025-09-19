@@ -18,6 +18,11 @@ export default defineConfig({
     assetsDir: 'assets',
     sourcemap: false,
     minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true,
+      },
+    },
     rollupOptions: {
       output: {
         manualChunks: {
@@ -42,7 +47,7 @@ export default defineConfig({
   
   // Optimización de dependencias
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react-router-dom'],
+    include: ['react', 'react-dom', 'react-router-dom', 'terser'],
   },
   
   // Configuración de preview
