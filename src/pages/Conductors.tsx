@@ -41,15 +41,17 @@ const Conductors: React.FC = () => {
 
   const loadConductors = async () => {
     try {
-      // Primero forzamos la limpieza de los conductores existentes
-      await storage.clearAll();
+      // Primero intentamos cargar los conductores existentes
+      let data = await storage.getConductors();
       
-      // Luego generamos los conductores por defecto
-      const defaultConductors = generateDefaultConductors();
-      await storage.saveConductors(defaultConductors);
+      // Si no hay conductores, generamos los conductores por defecto
+      if (data.length === 0) {
+        console.log('No se encontraron conductores, generando conductores por defecto...');
+        const defaultConductors = generateDefaultConductors();
+        await storage.saveConductors(defaultConductors);
+        data = defaultConductors;
+      }
       
-      // Finalmente cargamos los conductores
-      const data = await storage.getConductors();
       console.log('Conductores cargados:', data);
       setConductors(data);
     } catch (error) {
@@ -224,40 +226,50 @@ const Conductors: React.FC = () => {
             <div key={conductor.id} className="bg-white border border-gray-100 rounded-xl p-4 shadow-sm hover:shadow-md transition-all duration-200">
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-center space-x-2 mb-1">
-                    <span className="inline-flex items-center justify-center h-6 w-12 rounded-full bg-blue-50 text-blue-800 text-xs font-semibold">
-                      {conductor.numeroUnidad}
+                  <div className="flex items-center space-x-2 mb-2">
+                    <span className="inline-flex items-center justify-center h-8 w-16 rounded-lg bg-blue-600 text-white text-sm font-bold">
+                      {conductor.numeroUnidad || 'N/A'}
                     </span>
-                    <h3 className="text-base font-semibold text-gray-800 truncate">{conductor.nombre}</h3>
+                    <h3 className="text-base font-semibold text-gray-800 truncate flex-1">
+                      {conductor.nombre || 'Sin nombre'}
+                    </h3>
                   </div>
-                  <div className="mt-2 space-y-1.5 text-sm text-gray-600">
+                  <div className="mt-2 space-y-2 text-sm text-gray-600">
                     {conductor.area && (
                       <p className="flex items-center">
-                        <svg className="h-4 w-4 text-blue-500 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="h-4 w-4 text-blue-500 mr-2 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                         </svg>
-                        {conductor.area}
+                        <span className="truncate">{conductor.area}</span>
                       </p>
                     )}
-                    <p className="flex items-start">
-                      <svg className="h-4 w-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                      </svg>
-                      <span className="line-clamp-2">{conductor.ruta}</span>
-                    </p>
+                    {conductor.ruta && (
+                      <p className="flex items-start">
+                        <svg className="h-4 w-4 text-blue-500 mr-2 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                        </svg>
+                        <span className="line-clamp-2">{conductor.ruta}</span>
+                      </p>
+                    )}
                   </div>
                 </div>
-                <div className="flex space-x-1 ml-2">
+                <div className="ml-2 flex space-x-1">
                   <button
-                    onClick={() => handleEdit(conductor)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleEdit(conductor);
+                    }}
                     className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
                     title="Editar"
                   >
                     <Edit className="h-5 w-5" />
                   </button>
                   <button
-                    onClick={() => handleDelete(conductor.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDelete(conductor.id);
+                    }}
                     className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
                     title="Eliminar"
                   >

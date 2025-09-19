@@ -43,10 +43,27 @@ const Users: React.FC = () => {
   }, [users, searchTerm]);
 
   const loadData = async () => {
-    setUsers(storage.getUsers());
-    setPassengers(await storage.getPassengers());
-    setConductors(await storage.getConductors());
-    setConductorCredentials(await storage.getConductorCredentials());
+    try {
+      // Cargar usuarios
+      const usersData = storage.getUsers();
+      setUsers(usersData);
+      
+      // Cargar pasajeros
+      const passengersData = await storage.getPassengers();
+      setPassengers(passengersData);
+      
+      // Cargar conductores
+      const conductorsData = await storage.getConductors();
+      console.log('Conductores cargados en Users:', conductorsData);
+      setConductors(conductorsData);
+      
+      // Cargar credenciales de conductores
+      const credentialsData = await storage.getConductorCredentials();
+      setConductorCredentials(credentialsData);
+      
+    } catch (error) {
+      console.error('Error al cargar datos en Users:', error);
+    }
   };
 
   const filterUsers = () => {
@@ -91,20 +108,72 @@ const Users: React.FC = () => {
   const handleCredentialSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    const newCredential: ConductorCredential = {
-      id: Date.now().toString(),
-      conductorId: credentialData.conductorId,
-      username: credentialData.username,
-      password: credentialData.password,
-      isActive: true,
-      createdAt: new Date().toISOString()
-    };
-    
-    const updatedCredentials = [...conductorCredentials, newCredential];
-    await storage.saveConductorCredentials(updatedCredentials);
-    setConductorCredentials(updatedCredentials);
-    
-    resetCredentialForm();
+    try {
+      // Verificar si ya existe una credencial para este conductor
+      const existingCredential = conductorCredentials.find(
+        cred => cred.conductorId === credentialData.conductorId
+      );
+      
+      if (existingCredential) {
+        alert('Este conductor ya tiene credenciales asignadas. Por favor, actualice las credenciales existentes.');
+        return;
+      }
+      
+      // Verificar si el nombre de usuario ya está en uso
+      const usernameExists = conductorCredentials.some(
+        cred => cred.username.toLowerCase() === credentialData.username.toLowerCase()
+      );
+      
+      if (usernameExists) {
+        alert('El nombre de usuario ya está en uso. Por favor, elija otro.');
+        return;
+      }
+      
+      // Obtener el conductor seleccionado
+      const selectedConductor = conductors.find(c => c.id === credentialData.conductorId);
+      if (!selectedConductor) {
+        throw new Error('No se encontró el conductor seleccionado');
+      }
+      
+      const newCredential: ConductorCredential = {
+        id: Date.now().toString(),
+        conductorId: credentialData.conductorId,
+        username: credentialData.username,
+        password: credentialData.password,
+        isActive: true,
+        createdAt: new Date().toISOString()
+      };
+      
+      const updatedCredentials = [...conductorCredentials, newCredential];
+      await storage.saveConductorCredentials(updatedCredentials);
+      setConductorCredentials(updatedCredentials);
+      
+      // Crear automáticamente un usuario de tipo 'conductor' si no existe
+      const userExists = users.some(u => u.cedula === selectedConductor.cedula);
+      if (!userExists) {
+        const newUser: User = {
+          id: `user-${Date.now()}`,
+          name: selectedConductor.nombre,
+          cedula: selectedConductor.cedula || `cond-${selectedConductor.id}`,
+          role: 'conductor',
+          createdAt: new Date().toISOString()
+        };
+        
+        const updatedUsers = [...users, newUser];
+        await storage.saveUsers(updatedUsers);
+        setUsers(updatedUsers);
+      }
+      
+      // Mostrar mensaje de éxito
+      alert(`Credenciales creadas exitosamente para ${selectedConductor.nombre}`);
+      
+      // Cerrar el modal y limpiar el formulario
+      resetCredentialForm();
+      
+    } catch (error) {
+      console.error('Error al guardar las credenciales:', error);
+      alert('Ocurrió un error al guardar las credenciales. Por favor, intente nuevamente.');
+    }
   };
 
   const toggleCredentialStatus = async (credentialId: string) => {
@@ -408,43 +477,89 @@ const Users: React.FC = () => {
 
       {/* Modal Credenciales */}
       {isCredentialModalOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h2 className="text-xl font-bold text-gray-900 mb-4">
-              Crear Credenciales de Conductor
-            </h2>
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900">
+                Crear Credenciales de Conductor
+              </h2>
+              <button
+                onClick={resetCredentialForm}
+                className="text-gray-500 hover:text-gray-700"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
             
             <form onSubmit={handleCredentialSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Conductor *
+                  Seleccionar Conductor *
                 </label>
-                <select
-                  required
-                  value={credentialData.conductorId}
-                  onChange={(e) => setCredentialData({ ...credentialData, conductorId: e.target.value })}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-green-500"
-                >
-                  <option value="">Seleccionar conductor</option>
-                  {conductors.map((conductor) => (
-                    <option key={conductor.id} value={conductor.id}>
-                      {conductor.name} - {conductor.cedula}
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    required
+                    value={credentialData.conductorId}
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      const selected = conductors.find(c => c.id === selectedId);
+                      setCredentialData({ 
+                        ...credentialData, 
+                        conductorId: selectedId,
+                        // Generar nombre de usuario automáticamente basado en el nombre
+                        username: selected 
+                          ? selected.nombre.toLowerCase().replace(/\s+/g, '.') + 
+                            (selected.cedula ? selected.cedula.slice(-4) : '')
+                          : ''
+                      });
+                    }}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2.5 pr-10 appearance-none focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  >
+                    <option value="">Seleccione un conductor</option>
+                    {conductors
+                      .filter(conductor => 
+                        !conductorCredentials.some(cred => cred.conductorId === conductor.id)
+                      )
+                      .map((conductor) => (
+                        <option key={conductor.id} value={conductor.id}>
+                          {conductor.nombre} - Unidad {conductor.numeroUnidad} 
+                          {conductor.area ? `(${conductor.area})` : ''}
+                        </option>
+                      ))}
+                  </select>
+                  <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                    <svg className="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                      <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                    </svg>
+                  </div>
+                </div>
+                {credentialData.conductorId && (
+                  <p className="mt-1 text-xs text-gray-500">
+                    {conductors.find(c => c.id === credentialData.conductorId)?.ruta || 'Sin ruta asignada'}
+                  </p>
+                )}
               </div>
               
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Usuario *
+                  Nombre de usuario *
                 </label>
                 <input
                   type="text"
                   required
                   value={credentialData.username}
-                  onChange={(e) => setCredentialData({ ...credentialData, username: e.target.value })}
+                  onChange={(e) => setCredentialData({ 
+                    ...credentialData, 
+                    username: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, '') 
+                  })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  placeholder="Ej: juan.perez"
                 />
+                <p className="mt-1 text-xs text-gray-500">
+                  Solo letras minúsculas, números, puntos y guiones bajos
+                </p>
               </div>
               
               <div>
@@ -454,25 +569,20 @@ const Users: React.FC = () => {
                 <input
                   type="password"
                   required
+                  minLength={6}
                   value={credentialData.password}
                   onChange={(e) => setCredentialData({ ...credentialData, password: e.target.value })}
                   className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-green-500 focus:border-green-500"
+                  placeholder="Mínimo 6 caracteres"
                 />
               </div>
               
-              <div className="flex space-x-3 pt-4">
-                <button
-                  type="button"
-                  onClick={resetCredentialForm}
-                  className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancelar
-                </button>
+              <div className="pt-2">
                 <button
                   type="submit"
-                  className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                  className="w-full bg-green-600 text-white py-2.5 px-4 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 transition-colors"
                 >
-                  Crear
+                  Crear credenciales
                 </button>
               </div>
             </form>
