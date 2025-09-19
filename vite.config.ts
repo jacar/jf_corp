@@ -1,10 +1,9 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import basicSsl from '@vitejs/plugin-basic-ssl';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), basicSsl()],
+  plugins: [react()],
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
@@ -22,12 +21,12 @@ export default defineConfig({
     },
   },
   server: {
-    https: true,
     port: 5173,
     host: true,
   },
   preview: {
-    port: 5173,
+    port: 4173,
     host: true,
   },
+  base: '/',
 });
